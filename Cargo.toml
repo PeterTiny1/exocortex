@@ -5,3 +5,5 @@ edition = "2024"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
+dirs = "7.0.0"
+thiserror = "2.0.21"
