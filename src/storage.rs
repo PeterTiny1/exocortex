@@ -252,13 +252,24 @@ fn locate_dir(path: Option<PathBuf>) -> Result<PathBuf, Error> {
 mod tests {
     use super::*;
     use std::fs;
+    use tempfile::tempdir;
+
+    // ==========================================
+    // 1. Slugification Tests
+    // ==========================================
 
     #[test]
     fn test_slugify() {
         assert_eq!(slugify("Hello World!"), "hello-world");
         assert_eq!(slugify("  Rust 2024 -- Edition  "), "rust-2024-edition");
         assert_eq!(slugify("!!!"), "untitled");
+        assert_eq!(slugify("---special---chars---"), "special-chars");
+        assert_eq!(slugify("   "), "untitled");
     }
+
+    // ==========================================
+    // 2. Note Parsing & Serialization Tests
+    // ==========================================
 
     #[test]
     fn test_note_parse_with_frontmatter() {
@@ -269,18 +280,14 @@ mod tests {
     }
 
     #[test]
-    fn test_collision_handling() {
-        let temp_dir = std::env::temp_dir().join("exocortex_test_collisions");
-        let _ = fs::remove_dir_all(&temp_dir); // Ensure clean state from any prior failed run
-        fs::create_dir_all(&temp_dir).unwrap();
+    fn test_note_parse_frontmatter_quoted_titles() {
+        let raw_double = "---\ntitle: \"Double Quoted Title\"\n---\n\nContent";
+        let note_double = Note::parse(raw_double, "fallback");
+        assert_eq!(note_double.title, "Double Quoted Title");
 
-        let path1 = generate_unique_path(&temp_dir, "test-note");
-        fs::write(&path1, "content").unwrap();
-
-        let path2 = generate_unique_path(&temp_dir, "test-note");
-        assert_eq!(path2.file_name().unwrap(), "test-note-1.md");
-
-        let _ = fs::remove_dir_all(&temp_dir);
+        let raw_single = "---\ntitle: 'Single Quoted Title'\n---\n\nContent";
+        let note_single = Note::parse(raw_single, "fallback");
+        assert_eq!(note_single.title, "Single Quoted Title");
     }
 
     #[test]
@@ -292,20 +299,159 @@ mod tests {
     }
 
     #[test]
-    fn test_multiple_collisions() {
-        let temp_dir = std::env::temp_dir().join("exocortex_test_multi_collisions");
-        let _ = fs::remove_dir_all(&temp_dir);
-        fs::create_dir_all(&temp_dir).unwrap();
+    fn test_note_parse_crlf_normalization() {
+        let raw = "---\r\ntitle: Windows Line Endings\r\n---\r\n\r\nContent with CRLF.\r\n";
+        let note = Note::parse(raw, "fallback");
+        assert_eq!(note.title, "Windows Line Endings");
+        assert_eq!(note.content, "Content with CRLF.");
+    }
 
-        let path0 = generate_unique_path(&temp_dir, "note");
+    #[test]
+    fn test_note_to_file_content() {
+        let note = Note::new("My Title", "My Content");
+        let content = note.to_file_content();
+        assert_eq!(content, "---\ntitle: My Title\n---\n\nMy Content\n");
+    }
+
+    // ==========================================
+    // 3. Unique Path & Collision Tests
+    // ==========================================
+
+    #[test]
+    fn test_collision_handling() {
+        let dir = tempdir().unwrap();
+
+        let path1 = generate_unique_path(dir.path(), "test-note");
+        assert_eq!(path1.file_name().unwrap(), "test-note.md");
+        fs::write(&path1, "content").unwrap();
+
+        let path2 = generate_unique_path(dir.path(), "test-note");
+        assert_eq!(path2.file_name().unwrap(), "test-note-1.md");
+    }
+
+    #[test]
+    fn test_multiple_collisions() {
+        let dir = tempdir().unwrap();
+
+        let path0 = generate_unique_path(dir.path(), "note");
         fs::write(&path0, "c0").unwrap();
 
-        let path1 = generate_unique_path(&temp_dir, "note");
+        let path1 = generate_unique_path(dir.path(), "note");
         fs::write(&path1, "c1").unwrap();
 
-        let path2 = generate_unique_path(&temp_dir, "note");
+        let path2 = generate_unique_path(dir.path(), "note");
         assert_eq!(path2.file_name().unwrap(), "note-2.md");
+    }
 
-        let _ = fs::remove_dir_all(&temp_dir);
+    // ==========================================
+    // 4. StoredNote Operations Tests
+    // ==========================================
+
+    #[test]
+    fn test_stored_note_write_and_read() {
+        let dir = tempdir().unwrap();
+        let note = Note::new("Test Note", "Sample body text");
+
+        let stored = StoredNote::new(note, dir.path());
+        assert_eq!(stored.slug(), "test-note");
+        stored.write().unwrap();
+
+        assert!(stored.path().exists());
+
+        let read_back = StoredNote::from_file(stored.path()).unwrap();
+        assert_eq!(read_back.note.title, "Test Note");
+        assert_eq!(read_back.note.content, "Sample body text");
+        assert_eq!(read_back.slug(), "test-note");
+    }
+
+    // ==========================================
+    // 5. Storage CRUD Operations Tests
+    // ==========================================
+
+    #[test]
+    fn test_storage_create_and_read_note() {
+        let data_dir = tempdir().unwrap();
+        let config_dir = tempdir().unwrap();
+
+        let storage = Storage {
+            config_dir: config_dir.path().to_path_buf(),
+            data_dir: data_dir.path().to_path_buf(),
+        };
+
+        let note = Note::new("Storage Test", "Testing storage workflows.");
+        let stored = storage.create_note(note).unwrap();
+
+        let fetched = storage.read_note("storage-test").unwrap();
+        assert_eq!(fetched.note.title, "Storage Test");
+        assert_eq!(fetched.note.content, "Testing storage workflows.");
+        assert_eq!(fetched.path(), stored.path());
+    }
+
+    #[test]
+    fn test_storage_list_notes() {
+        let data_dir = tempdir().unwrap();
+        let config_dir = tempdir().unwrap();
+
+        let storage = Storage {
+            config_dir: config_dir.path().to_path_buf(),
+            data_dir: data_dir.path().to_path_buf(),
+        };
+
+        storage.create_note(Note::new("Note 1", "Content 1")).unwrap();
+        storage.create_note(Note::new("Note 2", "Content 2")).unwrap();
+
+        // Create a non-markdown file and subfolder to test list filtering
+        fs::write(storage.data_dir.join("ignore.txt"), "ignore me").unwrap();
+        fs::create_dir(storage.data_dir.join("subfolder")).unwrap();
+
+        let notes = storage.list_notes().unwrap();
+        assert_eq!(notes.len(), 2);
+
+        let titles: Vec<String> = notes.into_iter().map(|n| n.note.title).collect();
+        assert!(titles.contains(&"Note 1".to_string()));
+        assert!(titles.contains(&"Note 2".to_string()));
+    }
+
+    #[test]
+    fn test_storage_delete_note() {
+        let data_dir = tempdir().unwrap();
+        let config_dir = tempdir().unwrap();
+
+        let storage = Storage {
+            config_dir: config_dir.path().to_path_buf(),
+            data_dir: data_dir.path().to_path_buf(),
+        };
+
+        storage.create_note(Note::new("To Delete", "Goodbye")).unwrap();
+        assert!(storage.get_note_path("to-delete").is_ok());
+
+        storage.delete_note("to-delete").unwrap();
+        assert!(matches!(
+            storage.read_note("to-delete"),
+            Err(Error::NoteNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn test_storage_note_not_found() {
+        let data_dir = tempdir().unwrap();
+        let config_dir = tempdir().unwrap();
+
+        let storage = Storage {
+            config_dir: config_dir.path().to_path_buf(),
+            data_dir: data_dir.path().to_path_buf(),
+        };
+
+        let result = storage.get_note_path("non-existent-slug");
+        assert!(matches!(result, Err(Error::NoteNotFound { slug }) if slug == "non-existent-slug"));
+    }
+
+    #[test]
+    fn test_storage_init_with_cli_dir() {
+        let cli_dir = tempdir().unwrap().path().join("custom_data");
+
+        let storage = Storage::init(Some(cli_dir.clone())).unwrap();
+        assert_eq!(storage.data_dir, cli_dir);
+        assert!(storage.data_dir.exists());
     }
 }
