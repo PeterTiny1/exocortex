@@ -60,6 +60,23 @@ impl Note {
     }
 }
 
+fn generate_unique_path(base_path: &Path, slug: &str) -> PathBuf {
+    let slug = if slug.is_empty() { "untitled" } else { slug };
+    let mut candidate = base_path.join(format!("{slug}.md"));
+    if !candidate.exists() {
+        return candidate;
+    }
+
+    let mut counter = 1;
+    loop {
+        candidate = base_path.join(format!("{slug}-{counter}.md"));
+        if !candidate.exists() {
+            return candidate;
+        }
+        counter += 1;
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct StoredNote {
     pub note: Note,
@@ -68,16 +85,12 @@ pub struct StoredNote {
 
 impl StoredNote {
     fn new(note: Note, base_path: &Path) -> Self {
-        let clean_slug = slugify(&note.title);
+        let slug = slugify(&note.title);
 
-        let filename = if clean_slug.is_empty() {
-            "untitled.md".to_string()
-        } else {
-            format!("{clean_slug}.md")
-        };
+        let path = generate_unique_path(base_path, &slug);
 
         Self {
-            path: base_path.join(filename),
+            path,
             note,
         }
     }
