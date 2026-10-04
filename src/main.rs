@@ -50,15 +50,9 @@ fn main() -> Result<(), storage::Error> {
             println!("Created note at: {}", stored.path().display());
         }
         Commands::List => {
-            println!(
-                "{}",
-                storage
-                    .list_notes()?
-                    .into_iter()
-                    .map(|note| note.note.title)
-                    .collect::<Vec<_>>()
-                    .join("\n")
-            )
+            for stored in storage.list_notes()? {
+                println!("{} ({})", stored.note.title, stored.slug());
+            }
         }
     }
     Ok(())

@@ -80,15 +80,21 @@ fn generate_unique_path(base_path: &Path, slug: &str) -> PathBuf {
 pub struct StoredNote {
     pub note: Note,
     path: PathBuf,
+    slug: String,
 }
 
 impl StoredNote {
-    fn new(note: Note, base_path: &Path) -> Self {
-        let slug = slugify(&note.title);
+    pub fn new(note: Note, base_path: &Path) -> Self {
+        let base_slug = slugify(&note.title);
+        let path = generate_unique_path(base_path, &base_slug);
 
-        let path = generate_unique_path(base_path, &slug);
+        let slug = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or(&base_slug)
+            .to_string();
 
-        Self { path, note }
+        Self { note, path, slug }
     }
 
     fn write(&self) -> Result<(), Error> {
@@ -104,18 +110,24 @@ impl StoredNote {
             path: path.to_path_buf(),
             source: e,
         })?;
-        let fallback_title = path
+        let slug = path
             .file_stem()
             .and_then(|s| s.to_str())
-            .unwrap_or("Untitled");
+            .unwrap_or("untitled")
+            .to_string();
         Ok(Self {
             path: path.to_path_buf(),
-            note: Note::parse(&file_contents, fallback_title),
+            note: Note::parse(&file_contents, &slug),
+            slug,
         })
     }
 
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    pub fn slug(&self) -> &str {
+        &self.slug
     }
 }
 
