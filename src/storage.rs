@@ -17,11 +17,118 @@ pub enum Error {
     },
 }
 
+#[derive(Debug, Clone)]
+pub struct Note {
+    pub title: String,
+    pub content: String,
+}
+
+impl Note {
+    pub fn new(title: &str, content: &str) -> Self {
+        Self {
+            title: title.to_owned(),
+            content: content.to_owned(),
+        }
+    }
+
+    fn parse(raw_str: &str, fallback_title: &str) -> Self {
+        let normalized = raw_str.replace("\r\n", "\n");
+        let trimmed = normalized.trim();
+
+        let mut title = fallback_title.to_string();
+
+        let content = if let Some(rest) = trimmed.strip_prefix("---\n")
+            && let Some((frontmatter, note_contents)) = rest.split_once("\n---\n")
+        {
+            for line in frontmatter.lines() {
+                if let Some((field_name, field_content)) = line.split_once(':')
+                    && field_name.trim() == "title"
+                {
+                    title = field_content.trim().trim_matches(['"', '\'']).to_string();
+                }
+            }
+            note_contents.trim().to_string()
+        } else {
+            trimmed.to_string()
+        };
+
+        Self { title, content }
+    }
+
+    pub fn to_file_content(&self) -> String {
+        format!("---\ntitle: {}\n---\n\n{}\n", self.title, self.content)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct StoredNote {
+    pub note: Note,
+    path: PathBuf,
+}
+
+impl StoredNote {
+    fn new(note: Note, base_path: &Path) -> Self {
+        let clean_slug = slugify(&note.title);
+
+        let filename = if clean_slug.is_empty() {
+            "untitled.md".to_string()
+        } else {
+            format!("{clean_slug}.md")
+        };
+
+        Self {
+            path: base_path.join(filename),
+            note,
+        }
+    }
+
+    fn write(&self) -> Result<(), Error> {
+        fs::write(&self.path, self.note.to_file_content()).map_err(|e| Error::Io {
+            path: self.path.clone(),
+            source: e,
+        })?;
+        Ok(())
+    }
+
+    fn from_file(path: &Path) -> Result<Self, Error> {
+        let file_contents = fs::read_to_string(path).map_err(|e| Error::Io {
+            path: path.to_path_buf(),
+            source: e,
+        })?;
+        let fallback_title = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Untitled");
+        Ok(Self {
+            path: path.to_path_buf(),
+            note: Note::parse(&file_contents, fallback_title),
+        })
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+fn slugify(title: &str) -> String {
+    title
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
 const CRATE_NAME: &str = env!("CARGO_PKG_NAME");
+
 pub struct Storage {
     pub config_dir: PathBuf,
     pub data_dir: PathBuf,
 }
+
 impl Storage {
     pub fn init() -> Result<Self, Error> {
         let config_dir = locate_dir(dirs::config_dir())?;
@@ -37,27 +144,27 @@ impl Storage {
         })
     }
 
-    pub fn create_note(&self, title: &str, content: &str) -> Result<PathBuf, Error> {
-        let filename = format!("{}.md", title.to_lowercase().replace(' ', "-"));
-        let note_path = self.data_dir.join(filename);
-
-        let file_contents = format!("---\ntitle: {title}\n---\n\n{content}\n");
-
-        fs::write(&note_path, file_contents).map_err(|e| Error::Io {
-            path: note_path.clone(),
-            source: e,
-        })?;
-        Ok(note_path)
+    pub fn create_note(&self, title: &str, content: &str) -> Result<StoredNote, Error> {
+        let note = Note::new(title, content);
+        let stored = StoredNote::new(note, &self.data_dir);
+        stored.write()?;
+        Ok(stored)
     }
 
-    pub fn list_notes(&self) -> Result<Vec<PathBuf>, Error> {
-        Ok(read_dir(&self.data_dir)?
-            .filter_map(|f| {
-                f.ok()
-                    .map(|file| file.path())
-                    .filter(|path| path.extension() == Some(OsStr::new("md")) && path.is_file())
+    pub fn list_notes(&self) -> Result<Vec<StoredNote>, Error> {
+        let notes = read_dir(&self.data_dir)?
+            .filter_map(|entry| {
+                let path = entry.ok()?.path();
+
+                if path.is_file() && path.extension() == Some(OsStr::new("md")) {
+                    StoredNote::from_file(&path).ok()
+                } else {
+                    None
+                }
             })
-            .collect())
+            .collect();
+
+        Ok(notes)
     }
 }
 
