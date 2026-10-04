@@ -33,6 +33,16 @@ pub enum Commands {
     },
     /// List all notes in storage
     List,
+    /// Read and display a note's raw content by slug
+    Read {
+        /// Slug of the note to display
+        slug: String,
+    },
+    /// Delete a note by slug
+    Delete {
+        /// Slug of the note to remove
+        slug: String,
+    },
 }
 
 fn main() -> Result<(), storage::Error> {
@@ -53,6 +63,14 @@ fn main() -> Result<(), storage::Error> {
             for stored in storage.list_notes()? {
                 println!("{} ({})", stored.note.title, stored.slug());
             }
+        }
+        Commands::Read { slug } => {
+            let stored = storage.read_note(&slug)?;
+            println!("# {}\n\n{}", stored.note.title, stored.note.content);
+        }
+        Commands::Delete { slug } => {
+            storage.delete_note(&slug)?;
+            println!("Deleted {slug}.md")
         }
     }
     Ok(())

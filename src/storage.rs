@@ -15,6 +15,30 @@ pub enum Error {
         path: PathBuf,
         source: std::io::Error,
     },
+    #[error("note not found: {slug}")]
+    NoteNotFound { slug: String },
+}
+
+pub trait PathIoContext<T> {
+    fn with_path(self, path: &Path) -> Result<T, Error>;
+}
+
+impl<T> PathIoContext<T> for std::io::Result<T> {
+    fn with_path(self, path: &Path) -> Result<T, Error> {
+        self.map_err(|source| Error::Io {
+            path: path.to_path_buf(),
+            source,
+        })
+    }
+}
+
+// Clean usage without verbose map_err calls:
+fn read_dir(dir: &Path) -> Result<ReadDir, Error> {
+    fs::read_dir(dir).with_path(dir)
+}
+
+fn create_dir_all(dir: &Path) -> Result<(), Error> {
+    fs::create_dir_all(dir).with_path(dir)
 }
 
 #[derive(Debug, Clone)]
@@ -176,6 +200,17 @@ impl Storage {
         })
     }
 
+    /// Resolves a note slug to its existing file path, returning an error if missing.
+    pub fn get_note_path(&self, slug: &str) -> Result<PathBuf, Error> {
+        let path = self.data_dir.join(format!("{}.md", slug));
+        if !path.is_file() {
+            return Err(Error::NoteNotFound {
+                slug: slug.to_string(),
+            });
+        }
+        Ok(path)
+    }
+
     pub fn create_note(&self, note: Note) -> Result<StoredNote, Error> {
         let stored = StoredNote::new(note, &self.data_dir);
         stored.write()?;
@@ -197,27 +232,22 @@ impl Storage {
 
         Ok(notes)
     }
+
+    /// Read a stored note by its unique slug.
+    pub fn read_note(&self, slug: &str) -> Result<StoredNote, Error> {
+        StoredNote::from_file(&self.get_note_path(slug)?)
+    }
+
+    /// Delete a stored note from disk by its slug.
+    pub fn delete_note(&self, slug: &str) -> Result<(), Error> {
+        let path = self.get_note_path(slug)?;
+        std::fs::remove_file(&path).with_path(&path)
+    }
 }
 
 fn read_custom_data_dir(_config_dir: &Path) -> Option<PathBuf> {
     // Stub: We will parse config.toml here once we add serde/toml
     None
-}
-
-fn read_dir(dir: &Path) -> Result<ReadDir, Error> {
-    let read = fs::read_dir(dir).map_err(|e| Error::Io {
-        path: dir.to_path_buf(),
-        source: e,
-    })?;
-    Ok(read)
-}
-
-fn create_dir_all(dir: &Path) -> Result<(), Error> {
-    fs::create_dir_all(dir).map_err(|e| Error::Io {
-        path: dir.to_path_buf(),
-        source: e,
-    })?;
-    Ok(())
 }
 
 fn locate_dir(path: Option<PathBuf>) -> Result<PathBuf, Error> {
