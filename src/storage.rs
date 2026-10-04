@@ -145,22 +145,27 @@ pub struct Storage {
 }
 
 impl Storage {
-    pub fn init() -> Result<Self, Error> {
+    pub fn init(cli_data_dir: Option<PathBuf>) -> Result<Self, Error> {
         let config_dir = locate_dir(dirs::config_dir())?;
-        let data_dir = match read_custom_data_dir(&config_dir) {
-            Some(custom_path) => custom_path,
-            None => locate_dir(dirs::data_local_dir())?,
+
+        let data_dir = match cli_data_dir {
+            Some(path) => path,
+            None => match read_custom_data_dir(&config_dir) {
+                Some(custom_path) => custom_path,
+                None => locate_dir(dirs::data_local_dir())?,
+            },
         };
+
         create_dir_all(&config_dir)?;
         create_dir_all(&data_dir)?;
+
         Ok(Self {
             config_dir,
             data_dir,
         })
     }
 
-    pub fn create_note(&self, title: &str, content: &str) -> Result<StoredNote, Error> {
-        let note = Note::new(title, content);
+    pub fn create_note(&self, note: Note) -> Result<StoredNote, Error> {
         let stored = StoredNote::new(note, &self.data_dir);
         stored.write()?;
         Ok(stored)
