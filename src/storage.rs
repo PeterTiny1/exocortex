@@ -125,18 +125,12 @@ impl StoredNote {
     }
 
     fn write(&self) -> Result<(), Error> {
-        fs::write(&self.path, self.note.to_file_content()).map_err(|e| Error::Io {
-            path: self.path.clone(),
-            source: e,
-        })?;
+        fs::write(&self.path, self.note.to_file_content()).with_path(&self.path)?;
         Ok(())
     }
 
     fn from_file(path: &Path) -> Result<Self, Error> {
-        let file_contents = fs::read_to_string(path).map_err(|e| Error::Io {
-            path: path.to_path_buf(),
-            source: e,
-        })?;
+        let file_contents = fs::read_to_string(path).with_path(path)?;
         let slug = slug_from_path(path, "untitled");
         Ok(Self {
             path: path.to_path_buf(),
@@ -202,7 +196,7 @@ impl Storage {
 
     /// Resolves a note slug to its existing file path, returning an error if missing.
     pub fn get_note_path(&self, slug: &str) -> Result<PathBuf, Error> {
-        let path = self.data_dir.join(format!("{}.md", slug));
+        let path = self.data_dir.join(format!("{slug}.md"));
         if !path.is_file() {
             return Err(Error::NoteNotFound {
                 slug: slug.to_string(),
