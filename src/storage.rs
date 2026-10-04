@@ -1,6 +1,6 @@
 use std::{
     ffi::OsStr,
-    fs::{self, DirEntry, ReadDir},
+    fs::{self, ReadDir},
     path::{Path, PathBuf},
 };
 
