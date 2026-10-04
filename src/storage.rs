@@ -76,6 +76,13 @@ fn generate_unique_path(base_path: &Path, slug: &str) -> PathBuf {
     }
 }
 
+pub fn slug_from_path(path: &Path, fallback: &str) -> String {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(fallback)
+        .to_string()
+}
+
 #[derive(Debug, Clone)]
 pub struct StoredNote {
     pub note: Note,
@@ -88,11 +95,7 @@ impl StoredNote {
         let base_slug = slugify(&note.title);
         let path = generate_unique_path(base_path, &base_slug);
 
-        let slug = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or(&base_slug)
-            .to_string();
+        let slug = slug_from_path(&path, &base_slug);
 
         Self { note, path, slug }
     }
@@ -110,11 +113,7 @@ impl StoredNote {
             path: path.to_path_buf(),
             source: e,
         })?;
-        let slug = path
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("untitled")
-            .to_string();
+        let slug = slug_from_path(path, "untitled");
         Ok(Self {
             path: path.to_path_buf(),
             note: Note::parse(&file_contents, &slug),
