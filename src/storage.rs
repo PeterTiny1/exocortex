@@ -61,7 +61,6 @@ impl Note {
 }
 
 fn generate_unique_path(base_path: &Path, slug: &str) -> PathBuf {
-    let slug = if slug.is_empty() { "untitled" } else { slug };
     let mut candidate = base_path.join(format!("{slug}.md"));
     if !candidate.exists() {
         return candidate;
@@ -89,10 +88,7 @@ impl StoredNote {
 
         let path = generate_unique_path(base_path, &slug);
 
-        Self {
-            path,
-            note,
-        }
+        Self { path, note }
     }
 
     fn write(&self) -> Result<(), Error> {
@@ -124,7 +120,7 @@ impl StoredNote {
 }
 
 fn slugify(title: &str) -> String {
-    title
+    let slug = title
         .to_lowercase()
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
@@ -132,7 +128,13 @@ fn slugify(title: &str) -> String {
         .split('-')
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>()
-        .join("-")
+        .join("-");
+
+    if slug.is_empty() {
+        "untitled".to_string()
+    } else {
+        slug
+    }
 }
 
 const CRATE_NAME: &str = env!("CARGO_PKG_NAME");
@@ -204,4 +206,66 @@ fn create_dir_all(dir: &Path) -> Result<(), Error> {
 
 fn locate_dir(path: Option<PathBuf>) -> Result<PathBuf, Error> {
     Ok(path.ok_or(Error::HomeNotFound)?.join(CRATE_NAME))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn test_slugify() {
+        assert_eq!(slugify("Hello World!"), "hello-world");
+        assert_eq!(slugify("  Rust 2024 -- Edition  "), "rust-2024-edition");
+        assert_eq!(slugify("!!!"), "untitled");
+    }
+
+    #[test]
+    fn test_note_parse_with_frontmatter() {
+        let raw = "---\ntitle: Custom Title\n---\n\nNote content here.";
+        let note = Note::parse(raw, "fallback");
+        assert_eq!(note.title, "Custom Title");
+        assert_eq!(note.content, "Note content here.");
+    }
+
+    #[test]
+    fn test_collision_handling() {
+        let temp_dir = std::env::temp_dir().join("exocortex_test_collisions");
+        let _ = fs::remove_dir_all(&temp_dir); // Ensure clean state from any prior failed run
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let path1 = generate_unique_path(&temp_dir, "test-note");
+        fs::write(&path1, "content").unwrap();
+
+        let path2 = generate_unique_path(&temp_dir, "test-note");
+        assert_eq!(path2.file_name().unwrap(), "test-note-1.md");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_note_parse_fallback() {
+        let raw = "Just raw markdown without frontmatter.";
+        let note = Note::parse(raw, "Fallback Title");
+        assert_eq!(note.title, "Fallback Title");
+        assert_eq!(note.content, "Just raw markdown without frontmatter.");
+    }
+
+    #[test]
+    fn test_multiple_collisions() {
+        let temp_dir = std::env::temp_dir().join("exocortex_test_multi_collisions");
+        let _ = fs::remove_dir_all(&temp_dir);
+        fs::create_dir_all(&temp_dir).unwrap();
+
+        let path0 = generate_unique_path(&temp_dir, "note");
+        fs::write(&path0, "c0").unwrap();
+
+        let path1 = generate_unique_path(&temp_dir, "note");
+        fs::write(&path1, "c1").unwrap();
+
+        let path2 = generate_unique_path(&temp_dir, "note");
+        assert_eq!(path2.file_name().unwrap(), "note-2.md");
+
+        let _ = fs::remove_dir_all(&temp_dir);
+    }
 }
