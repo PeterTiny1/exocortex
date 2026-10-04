@@ -1,12 +1,15 @@
-use std::path::{Path, PathBuf};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use thiserror::Error;
 
 #[derive(Debug, Error)]
-pub enum PathError {
+pub enum Error {
     #[error("could not determine user home directory")]
     HomeNotFound,
-    #[error("failed to create directory at {path}: {source}")]
+    #[error("failed IO operation at {path}: {source}")]
     Io {
         path: PathBuf,
         source: std::io::Error,
@@ -19,7 +22,7 @@ pub struct Storage {
     pub data_dir: PathBuf,
 }
 impl Storage {
-    pub fn init() -> Result<Self, PathError> {
+    pub fn init() -> Result<Self, Error> {
         let config_dir = locate_dir(dirs::config_dir())?;
         let data_dir = match read_custom_data_dir(&config_dir) {
             Some(custom_path) => custom_path,
@@ -32,6 +35,19 @@ impl Storage {
             data_dir,
         })
     }
+
+    pub fn create_note(&self, title: &str, content: &str) -> Result<PathBuf, Error> {
+        let filename = format!("{}.md", title.to_lowercase().replace(' ', "-"));
+        let note_path = self.data_dir.join(filename);
+
+        let file_contents = format!("---\ntitle: {title}\n---\n\n{content}\n");
+
+        fs::write(&note_path, file_contents).map_err(|e| Error::Io {
+            path: note_path.clone(),
+            source: e,
+        })?;
+        Ok(note_path)
+    }
 }
 
 fn read_custom_data_dir(_config_dir: &Path) -> Option<PathBuf> {
@@ -39,14 +55,14 @@ fn read_custom_data_dir(_config_dir: &Path) -> Option<PathBuf> {
     None
 }
 
-fn create_dir_all(dir: &Path) -> Result<(), PathError> {
-    std::fs::create_dir_all(dir).map_err(|e| PathError::Io {
+fn create_dir_all(dir: &Path) -> Result<(), Error> {
+    fs::create_dir_all(dir).map_err(|e| Error::Io {
         path: dir.to_path_buf(),
         source: e,
     })?;
     Ok(())
 }
 
-fn locate_dir(path: Option<PathBuf>) -> Result<PathBuf, PathError> {
-    Ok(path.ok_or(PathError::HomeNotFound)?.join(CRATE_NAME))
+fn locate_dir(path: Option<PathBuf>) -> Result<PathBuf, Error> {
+    Ok(path.ok_or(Error::HomeNotFound)?.join(CRATE_NAME))
 }
