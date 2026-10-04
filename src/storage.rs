@@ -21,7 +21,10 @@ pub struct Storage {
 impl Storage {
     pub fn init() -> Result<Self, PathError> {
         let config_dir = locate_dir(dirs::config_dir())?;
-        let data_dir = locate_dir(dirs::data_local_dir())?;
+        let data_dir = match read_custom_data_dir(&config_dir) {
+            Some(custom_path) => custom_path,
+            None => locate_dir(dirs::data_local_dir())?,
+        };
         create_dir_all(&config_dir)?;
         create_dir_all(&data_dir)?;
         Ok(Self {
@@ -29,6 +32,11 @@ impl Storage {
             data_dir,
         })
     }
+}
+
+fn read_custom_data_dir(_config_dir: &Path) -> Option<PathBuf> {
+    // Stub: We will parse config.toml here once we add serde/toml
+    None
 }
 
 fn create_dir_all(dir: &Path) -> Result<(), PathError> {
