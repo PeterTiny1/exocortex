@@ -1,5 +1,6 @@
 use std::{
-    fs,
+    ffi::OsStr,
+    fs::{self, DirEntry, ReadDir},
     path::{Path, PathBuf},
 };
 
@@ -48,11 +49,29 @@ impl Storage {
         })?;
         Ok(note_path)
     }
+
+    pub fn list_notes(&self) -> Result<Vec<PathBuf>, Error> {
+        Ok(read_dir(&self.data_dir)?
+            .filter_map(|f| {
+                f.ok()
+                    .map(|file| file.path())
+                    .filter(|path| path.extension() == Some(OsStr::new("md")) && path.is_file())
+            })
+            .collect())
+    }
 }
 
 fn read_custom_data_dir(_config_dir: &Path) -> Option<PathBuf> {
     // Stub: We will parse config.toml here once we add serde/toml
     None
+}
+
+fn read_dir(dir: &Path) -> Result<ReadDir, Error> {
+    let read = fs::read_dir(dir).map_err(|e| Error::Io {
+        path: dir.to_path_buf(),
+        source: e,
+    })?;
+    Ok(read)
 }
 
 fn create_dir_all(dir: &Path) -> Result<(), Error> {
