@@ -148,6 +148,12 @@ impl StoredNote {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct SearchResult {
+    pub note: StoredNote,
+    pub title_match: bool,
+}
+
 fn slugify(title: &str) -> String {
     let slug = title
         .to_lowercase()
@@ -211,20 +217,46 @@ impl Storage {
         Ok(stored)
     }
 
+    /// Streams notes one-by-one lazily without allocating a temporary Vec.
+    pub fn iter_notes(&self) -> Result<impl Iterator<Item = Result<StoredNote, Error>>, Error> {
+        let entries = read_dir(&self.data_dir)?;
+
+        let iter = entries.filter_map(|entry| {
+            let entry = match entry.with_path(&self.data_dir) {
+                Ok(e) => e,
+                Err(err) => return Some(Err(err)),
+            };
+
+            let path = entry.path();
+            if path.is_file() && path.extension() == Some(OsStr::new("md")) {
+                Some(StoredNote::from_file(&path))
+            } else {
+                None
+            }
+        });
+
+        Ok(iter)
+    }
+
     pub fn list_notes(&self) -> Result<Vec<StoredNote>, Error> {
-        let notes = read_dir(&self.data_dir)?
-            .filter_map(|entry| {
-                let path = entry.ok()?.path();
+        self.iter_notes()?.collect()
+    }
 
-                if path.is_file() && path.extension() == Some(OsStr::new("md")) {
-                    StoredNote::from_file(&path).ok()
-                } else {
-                    None
-                }
-            })
-            .collect();
+    pub fn search_notes(&self, query: &str) -> Result<Vec<SearchResult>, Error> {
+        let query_lower = query.to_lowercase();
+        let mut results = Vec::new();
 
-        Ok(notes)
+        for note in self.iter_notes()? {
+            let note = note?; // Explicitly propagate read/parse errors
+            let title_match = note.note.title.to_lowercase().contains(&query_lower);
+            let content_match = note.note.content.to_lowercase().contains(&query_lower);
+
+            if title_match || content_match {
+                results.push(SearchResult { note, title_match });
+            }
+        }
+
+        Ok(results)
     }
 
     /// Read a stored note by its unique slug.
@@ -397,8 +429,12 @@ mod tests {
             data_dir: data_dir.path().to_path_buf(),
         };
 
-        storage.create_note(Note::new("Note 1", "Content 1")).unwrap();
-        storage.create_note(Note::new("Note 2", "Content 2")).unwrap();
+        storage
+            .create_note(Note::new("Note 1", "Content 1"))
+            .unwrap();
+        storage
+            .create_note(Note::new("Note 2", "Content 2"))
+            .unwrap();
 
         // Create a non-markdown file and subfolder to test list filtering
         fs::write(storage.data_dir.join("ignore.txt"), "ignore me").unwrap();
@@ -422,7 +458,9 @@ mod tests {
             data_dir: data_dir.path().to_path_buf(),
         };
 
-        storage.create_note(Note::new("To Delete", "Goodbye")).unwrap();
+        storage
+            .create_note(Note::new("To Delete", "Goodbye"))
+            .unwrap();
         assert!(storage.get_note_path("to-delete").is_ok());
 
         storage.delete_note("to-delete").unwrap();

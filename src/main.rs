@@ -43,6 +43,11 @@ pub enum Commands {
         /// Slug of the note to remove
         slug: String,
     },
+    /// Search notes by title or content substring
+    Search {
+        /// Search query
+        query: String,
+    },
 }
 
 fn main() -> Result<(), storage::Error> {
@@ -70,7 +75,22 @@ fn main() -> Result<(), storage::Error> {
         }
         Commands::Delete { slug } => {
             storage.delete_note(&slug)?;
-            println!("Deleted {slug}.md")
+            println!("Deleted {slug}.md");
+        }
+        Commands::Search { query } => {
+            let results = storage.search_notes(&query)?;
+            if results.is_empty() {
+                println!("No notes matched '{query}'");
+            } else {
+                for res in results {
+                    let match_type = if res.title_match { "title" } else { "content" };
+                    println!(
+                        "{} ({}) [{match_type} match]",
+                        res.note.note.title,
+                        res.note.slug()
+                    );
+                }
+            }
         }
     }
     Ok(())
