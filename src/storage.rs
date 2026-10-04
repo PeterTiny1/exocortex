@@ -6,6 +6,12 @@ use std::{
 
 use thiserror::Error;
 
+// ==========================================
+// 1. Constants & Error Definitions
+// ==========================================
+
+const CRATE_NAME: &str = env!("CARGO_PKG_NAME");
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("could not determine user home directory")]
@@ -18,6 +24,10 @@ pub enum Error {
     #[error("note not found: {slug}")]
     NoteNotFound { slug: String },
 }
+
+// ==========================================
+// 2. Trait & Extension Implementations
+// ==========================================
 
 pub trait PathIoContext<T> {
     fn with_path(self, path: &Path) -> Result<T, Error>;
@@ -32,14 +42,9 @@ impl<T> PathIoContext<T> for std::io::Result<T> {
     }
 }
 
-// Clean usage without verbose map_err calls:
-fn read_dir(dir: &Path) -> Result<ReadDir, Error> {
-    fs::read_dir(dir).with_path(dir)
-}
-
-fn create_dir_all(dir: &Path) -> Result<(), Error> {
-    fs::create_dir_all(dir).with_path(dir)
-}
+// ==========================================
+// 3. Domain Models (Note, StoredNote, SearchResult)
+// ==========================================
 
 #[derive(Debug, Clone)]
 pub struct Note {
@@ -84,29 +89,6 @@ impl Note {
     }
 }
 
-fn generate_unique_path(base_path: &Path, slug: &str) -> PathBuf {
-    let mut candidate = base_path.join(format!("{slug}.md"));
-    if !candidate.exists() {
-        return candidate;
-    }
-
-    let mut counter = 1;
-    loop {
-        candidate = base_path.join(format!("{slug}-{counter}.md"));
-        if !candidate.exists() {
-            return candidate;
-        }
-        counter += 1;
-    }
-}
-
-pub fn slug_from_path(path: &Path, fallback: &str) -> String {
-    path.file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or(fallback)
-        .to_string()
-}
-
 #[derive(Debug, Clone)]
 pub struct StoredNote {
     pub note: Note,
@@ -118,25 +100,24 @@ impl StoredNote {
     pub fn new(note: Note, base_path: &Path) -> Self {
         let base_slug = slugify(&note.title);
         let path = generate_unique_path(base_path, &base_slug);
-
         let slug = slug_from_path(&path, &base_slug);
 
         Self { note, path, slug }
     }
 
-    fn write(&self) -> Result<(), Error> {
-        fs::write(&self.path, self.note.to_file_content()).with_path(&self.path)?;
-        Ok(())
-    }
-
     fn from_file(path: &Path) -> Result<Self, Error> {
-        let file_contents = fs::read_to_string(path).with_path(path)?;
+        let file_contents = read_to_string(path)?;
         let slug = slug_from_path(path, "untitled");
         Ok(Self {
             path: path.to_path_buf(),
             note: Note::parse(&file_contents, &slug),
             slug,
         })
+    }
+
+    fn write(&self) -> Result<(), Error> {
+        write(&self.path, self.note.to_file_content())?;
+        Ok(())
     }
 
     pub fn path(&self) -> &Path {
@@ -154,25 +135,9 @@ pub struct SearchResult {
     pub title_match: bool,
 }
 
-fn slugify(title: &str) -> String {
-    let slug = title
-        .to_lowercase()
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect::<String>()
-        .split('-')
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("-");
-
-    if slug.is_empty() {
-        "untitled".to_string()
-    } else {
-        slug
-    }
-}
-
-const CRATE_NAME: &str = env!("CARGO_PKG_NAME");
+// ==========================================
+// 4. Primary Business Logic (Storage)
+// ==========================================
 
 pub struct Storage {
     pub config_dir: PathBuf,
@@ -267,7 +232,7 @@ impl Storage {
     /// Delete a stored note from disk by its slug.
     pub fn delete_note(&self, slug: &str) -> Result<(), Error> {
         let path = self.get_note_path(slug)?;
-        std::fs::remove_file(&path).with_path(&path)
+        remove_file(&path)
     }
 
     /// Renames a note by updating its title, writing the new file first,
@@ -294,10 +259,10 @@ impl Storage {
 
         // 3. Only delete old file if path changed and write succeeded
         if old_stored.path != new_path
-            && let Err(e) = std::fs::remove_file(&old_stored.path).with_path(&old_stored.path)
+            && let Err(e) = remove_file(&old_stored.path)
         {
             // If cleanup fails, attempt to rollback new file to prevent duplicate state
-            let _ = std::fs::remove_file(&new_path);
+            let _ = remove_file(&new_path);
             return Err(e);
         }
 
@@ -305,14 +270,84 @@ impl Storage {
     }
 }
 
-fn read_custom_data_dir(_config_dir: &Path) -> Option<PathBuf> {
-    // Stub: We will parse config.toml here once we add serde/toml
-    None
+// ==========================================
+// 5. Utility Functions & I/O Helpers
+// ==========================================
+
+fn slugify(title: &str) -> String {
+    let slug = title
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .split('-')
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("-");
+
+    if slug.is_empty() {
+        "untitled".to_string()
+    } else {
+        slug
+    }
+}
+
+pub fn slug_from_path(path: &Path, fallback: &str) -> String {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or(fallback)
+        .to_string()
+}
+
+fn generate_unique_path(base_path: &Path, slug: &str) -> PathBuf {
+    let mut candidate = base_path.join(format!("{slug}.md"));
+    if !candidate.exists() {
+        return candidate;
+    }
+
+    let mut counter = 1;
+    loop {
+        candidate = base_path.join(format!("{slug}-{counter}.md"));
+        if !candidate.exists() {
+            return candidate;
+        }
+        counter += 1;
+    }
 }
 
 fn locate_dir(path: Option<PathBuf>) -> Result<PathBuf, Error> {
     Ok(path.ok_or(Error::HomeNotFound)?.join(CRATE_NAME))
 }
+
+fn read_custom_data_dir(_config_dir: &Path) -> Option<PathBuf> {
+    // Stub: We will parse config.toml here once we add serde/toml
+    None
+}
+
+// Standard I/O wrappers with context attached
+fn read_dir(dir: &Path) -> Result<ReadDir, Error> {
+    fs::read_dir(dir).with_path(dir)
+}
+
+fn create_dir_all(dir: &Path) -> Result<(), Error> {
+    fs::create_dir_all(dir).with_path(dir)
+}
+
+fn read_to_string(path: &Path) -> Result<String, Error> {
+    fs::read_to_string(path).with_path(path)
+}
+
+fn write(path: &Path, contents: impl AsRef<[u8]>) -> Result<(), Error> {
+    fs::write(path, contents).with_path(path)
+}
+
+fn remove_file(path: &Path) -> Result<(), Error> {
+    std::fs::remove_file(path).with_path(path)
+}
+
+// ==========================================
+// 6. Tests
+// ==========================================
 
 #[cfg(test)]
 mod tests {
