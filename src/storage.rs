@@ -269,6 +269,40 @@ impl Storage {
         let path = self.get_note_path(slug)?;
         std::fs::remove_file(&path).with_path(&path)
     }
+
+    /// Renames a note by updating its title, writing the new file first,
+    /// and removing the old file only after the new file is safely on disk.
+    pub fn rename_note(&self, old_slug: &str, new_title: &str) -> Result<StoredNote, Error> {
+        let old_stored = self.read_note(old_slug)?;
+
+        let new_slug_base = slugify(new_title);
+        let new_path = generate_unique_path(&self.data_dir, &new_slug_base);
+        let slug = slug_from_path(&new_path, &new_slug_base);
+
+        // 1. Create updated StoredNote pointing to the new path
+        let new_stored = StoredNote {
+            path: new_path.clone(),
+            slug,
+            note: Note {
+                title: new_title.to_string(),
+                content: old_stored.note.content.clone(),
+            },
+        };
+
+        // 2. Write the new note file first
+        new_stored.write()?;
+
+        // 3. Only delete old file if path changed and write succeeded
+        if old_stored.path != new_path
+            && let Err(e) = std::fs::remove_file(&old_stored.path).with_path(&old_stored.path)
+        {
+            // If cleanup fails, attempt to rollback new file to prevent duplicate state
+            let _ = std::fs::remove_file(&new_path);
+            return Err(e);
+        }
+
+        Ok(new_stored)
+    }
 }
 
 fn read_custom_data_dir(_config_dir: &Path) -> Option<PathBuf> {

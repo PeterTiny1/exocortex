@@ -48,6 +48,13 @@ pub enum Commands {
         /// Search query
         query: String,
     },
+    /// Rename a note (updates title frontmatter and filename slug)
+    Rename {
+        /// Current slug of the note
+        slug: String,
+        /// New title for the note
+        new_title: String,
+    },
 }
 
 fn main() -> Result<(), storage::Error> {
@@ -91,6 +98,15 @@ fn main() -> Result<(), storage::Error> {
                     );
                 }
             }
+        }
+        Commands::Rename { slug, new_title } => {
+            let updated = storage.rename_note(&slug, &new_title)?;
+            println!(
+                "Renamed '{}' -> '{}' ({}.md)",
+                slug,
+                updated.note.title,
+                updated.slug()
+            );
         }
     }
     Ok(())
