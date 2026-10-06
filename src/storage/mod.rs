@@ -15,7 +15,7 @@ use error::PathIoContext;
 use io::locate_dir;
 
 pub struct Storage {
-    pub config_dir: PathBuf,
+    pub _config_dir: PathBuf,
     pub data_dir: PathBuf,
 }
 
@@ -35,7 +35,7 @@ impl Storage {
         io::create_dir_all(&data_dir)?;
 
         Ok(Self {
-            config_dir,
+            _config_dir: config_dir,
             data_dir,
         })
     }
@@ -127,7 +127,7 @@ impl Storage {
         new_stored.write()?;
 
         if old_stored.path() != new_path
-            && let Err(e) = io::remove_file(&old_stored.path())
+            && let Err(e) = io::remove_file(old_stored.path())
         {
             let _ = io::remove_file(&new_path);
             return Err(e);

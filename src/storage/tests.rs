@@ -71,7 +71,7 @@ fn test_storage_create_and_read_note() {
     let config_dir = tempdir().unwrap();
 
     let storage = Storage {
-        config_dir: config_dir.path().to_path_buf(),
+        _config_dir: config_dir.path().to_path_buf(),
         data_dir: data_dir.path().to_path_buf(),
     };
 
@@ -90,7 +90,7 @@ fn test_storage_list_notes() {
     let config_dir = tempdir().unwrap();
 
     let storage = Storage {
-        config_dir: config_dir.path().to_path_buf(),
+        _config_dir: config_dir.path().to_path_buf(),
         data_dir: data_dir.path().to_path_buf(),
     };
 
@@ -119,7 +119,7 @@ fn test_storage_search_notes() {
     let config_dir = tempdir().unwrap();
 
     let storage = Storage {
-        config_dir: config_dir.path().to_path_buf(),
+        _config_dir: config_dir.path().to_path_buf(),
         data_dir: data_dir.path().to_path_buf(),
     };
 
@@ -162,7 +162,7 @@ fn test_storage_delete_note() {
     let config_dir = tempdir().unwrap();
 
     let storage = Storage {
-        config_dir: config_dir.path().to_path_buf(),
+        _config_dir: config_dir.path().to_path_buf(),
         data_dir: data_dir.path().to_path_buf(),
     };
 
@@ -184,7 +184,7 @@ fn test_storage_note_not_found() {
     let config_dir = tempdir().unwrap();
 
     let storage = Storage {
-        config_dir: config_dir.path().to_path_buf(),
+        _config_dir: config_dir.path().to_path_buf(),
         data_dir: data_dir.path().to_path_buf(),
     };
 

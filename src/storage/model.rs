@@ -72,7 +72,7 @@ impl StoredNote {
     }
 
     pub fn with_path(note: Note, path: &Path) -> Self {
-        let slug = slug_from_path(&path, "untitled");
+        let slug = slug_from_path(path, "untitled");
         Self {
             path: path.to_path_buf(),
             slug,
