@@ -168,7 +168,15 @@ impl Storage {
 
     /// Resolves a note slug to its existing file path, returning an error if missing.
     pub fn get_note_path(&self, slug: &str) -> Result<PathBuf, Error> {
-        let path = self.data_dir.join(format!("{slug}.md"));
+        // Prevent path traversal attacks
+        let safe_slug = Path::new(slug)
+            .file_name()
+            .and_then(|s| s.to_str())
+            .ok_or_else(|| Error::NoteNotFound {
+                slug: slug.to_string(),
+            })?;
+
+        let path = self.data_dir.join(format!("{safe_slug}.md"));
         if !path.is_file() {
             return Err(Error::NoteNotFound {
                 slug: slug.to_string(),
