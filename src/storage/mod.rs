@@ -15,11 +15,7 @@ use error::PathIoContext;
 use io::locate_dir;
 
 // ==========================================
-// 1. Domain Models (Note, StoredNote, SearchResult)
-// ==========================================
-
-// ==========================================
-// 2. Primary Business Logic (Storage)
+// 1. Primary Business Logic (Storage)
 // ==========================================
 
 pub struct Storage {
@@ -171,7 +167,7 @@ impl Storage {
 }
 
 // ==========================================
-// 3. Utility Functions & I/O Helpers
+// 2. Utility Functions & I/O Helpers
 // ==========================================
 
 pub(crate) fn slugify(title: &str) -> String {
