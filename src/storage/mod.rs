@@ -1,11 +1,13 @@
+mod error;
 use std::{
     ffi::OsStr,
     fs::{self, ReadDir},
     path::{Path, PathBuf},
 };
 
+pub use error::Error;
+use error::PathIoContext;
 use tempfile::NamedTempFile;
-use thiserror::Error;
 
 // ==========================================
 // 1. Constants & Error Definitions
@@ -13,38 +15,8 @@ use thiserror::Error;
 
 const CRATE_NAME: &str = env!("CARGO_PKG_NAME");
 
-#[derive(Debug, Error)]
-pub enum Error {
-    #[error("could not determine user home directory")]
-    HomeNotFound,
-    #[error("failed IO operation at {path}: {source}")]
-    Io {
-        path: PathBuf,
-        source: std::io::Error,
-    },
-    #[error("note not found: {slug}")]
-    NoteNotFound { slug: String },
-}
-
 // ==========================================
-// 2. Trait & Extension Implementations
-// ==========================================
-
-pub trait PathIoContext<T> {
-    fn with_path(self, path: &Path) -> Result<T, Error>;
-}
-
-impl<T> PathIoContext<T> for std::io::Result<T> {
-    fn with_path(self, path: &Path) -> Result<T, Error> {
-        self.map_err(|source| Error::Io {
-            path: path.to_path_buf(),
-            source,
-        })
-    }
-}
-
-// ==========================================
-// 3. Domain Models (Note, StoredNote, SearchResult)
+// 2. Domain Models (Note, StoredNote, SearchResult)
 // ==========================================
 
 #[derive(Debug, Clone)]
@@ -137,7 +109,7 @@ pub struct SearchResult {
 }
 
 // ==========================================
-// 4. Primary Business Logic (Storage)
+// 3. Primary Business Logic (Storage)
 // ==========================================
 
 pub struct Storage {
@@ -306,7 +278,7 @@ impl Storage {
 }
 
 // ==========================================
-// 5. Utility Functions & I/O Helpers
+// 4. Utility Functions & I/O Helpers
 // ==========================================
 
 fn slugify(title: &str) -> String {
@@ -381,7 +353,7 @@ fn remove_file(path: &Path) -> Result<(), Error> {
 }
 
 // ==========================================
-// 6. Tests
+// 5. Tests
 // ==========================================
 
 #[cfg(test)]
