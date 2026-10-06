@@ -1,5 +1,6 @@
 mod error;
 mod io;
+mod model;
 #[cfg(test)]
 mod tests;
 use std::{
@@ -7,6 +8,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+pub use crate::storage::model::{Note, SearchResult, StoredNote};
 pub use error::Error;
 use error::PathIoContext;
 
@@ -15,95 +17,6 @@ use io::locate_dir;
 // ==========================================
 // 1. Domain Models (Note, StoredNote, SearchResult)
 // ==========================================
-
-#[derive(Debug, Clone)]
-pub struct Note {
-    pub title: String,
-    pub content: String,
-}
-
-impl Note {
-    pub fn new(title: &str, content: &str) -> Self {
-        Self {
-            title: title.to_owned(),
-            content: content.to_owned(),
-        }
-    }
-
-    fn parse(raw_str: &str, fallback_title: &str) -> Self {
-        let normalized = raw_str.replace("\r\n", "\n");
-        let trimmed = normalized.trim();
-
-        let mut title = fallback_title.to_string();
-
-        let content = if let Some(rest) = trimmed.strip_prefix("---\n")
-            && let Some((frontmatter, note_contents)) = rest.split_once("\n---\n")
-        {
-            for line in frontmatter.lines() {
-                if let Some((field_name, field_content)) = line.split_once(':')
-                    && field_name.trim() == "title"
-                {
-                    title = field_content.trim().trim_matches(['"', '\'']).to_string();
-                }
-            }
-            note_contents.trim().to_string()
-        } else {
-            trimmed.to_string()
-        };
-
-        Self { title, content }
-    }
-
-    pub fn to_file_content(&self) -> String {
-        format!("---\ntitle: {}\n---\n\n{}\n", self.title, self.content)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct StoredNote {
-    pub note: Note,
-    path: PathBuf,
-    slug: String,
-}
-
-impl StoredNote {
-    pub fn new(note: Note, base_path: &Path) -> Self {
-        let base_slug = slugify(&note.title);
-        let path = generate_unique_path(base_path, &base_slug);
-        let slug = slug_from_path(&path, &base_slug);
-
-        Self { note, path, slug }
-    }
-
-    fn from_file(path: &Path) -> Result<Self, Error> {
-        let file_contents = io::read_to_string(path)?;
-        let slug = slug_from_path(path, "untitled");
-        Ok(Self {
-            path: path.to_path_buf(),
-            note: Note::parse(&file_contents, &slug),
-            slug,
-        })
-    }
-
-    fn write(&self) -> Result<(), Error> {
-        io::write(&self.path, self.note.to_file_content())?;
-        Ok(())
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-
-    pub fn slug(&self) -> &str {
-        &self.slug
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct SearchResult {
-    pub note: StoredNote,
-    pub title_match: bool,
-}
 
 // ==========================================
 // 2. Primary Business Logic (Storage)
@@ -220,24 +133,17 @@ impl Storage {
 
         let new_slug_base = slugify(new_title);
         let new_path = generate_unique_path(&self.data_dir, &new_slug_base);
-        let slug = slug_from_path(&new_path, &new_slug_base);
 
         // 1. Create updated StoredNote pointing to the new path
-        let new_stored = StoredNote {
-            path: new_path.clone(),
-            slug,
-            note: Note {
-                title: new_title.to_string(),
-                content: old_stored.note.content.clone(),
-            },
-        };
+        let new_stored =
+            StoredNote::with_path(Note::new(new_title, &old_stored.note.content), &new_path);
 
         // 2. Write the new note file first
         new_stored.write()?;
 
         // 3. Only delete old file if path changed and write succeeded
-        if old_stored.path != new_path
-            && let Err(e) = io::remove_file(&old_stored.path)
+        if old_stored.path() != new_path
+            && let Err(e) = io::remove_file(&old_stored.path())
         {
             // If cleanup fails, attempt to rollback new file to prevent duplicate state
             let _ = io::remove_file(&new_path);
@@ -268,7 +174,7 @@ impl Storage {
 // 3. Utility Functions & I/O Helpers
 // ==========================================
 
-fn slugify(title: &str) -> String {
+pub(crate) fn slugify(title: &str) -> String {
     let slug = title
         .to_lowercase()
         .chars()
@@ -286,14 +192,14 @@ fn slugify(title: &str) -> String {
     }
 }
 
-pub fn slug_from_path(path: &Path, fallback: &str) -> String {
+pub(crate) fn slug_from_path(path: &Path, fallback: &str) -> String {
     path.file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or(fallback)
         .to_string()
 }
 
-fn generate_unique_path(base_path: &Path, slug: &str) -> PathBuf {
+pub(crate) fn generate_unique_path(base_path: &Path, slug: &str) -> PathBuf {
     let mut candidate = base_path.join(format!("{slug}.md"));
     if !candidate.exists() {
         return candidate;

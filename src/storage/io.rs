@@ -1,7 +1,10 @@
 use tempfile::NamedTempFile;
 
 use crate::storage::{Error, error::PathIoContext};
-use std::{fs::{self, ReadDir}, path::{Path, PathBuf}};
+use std::{
+    fs::{self, ReadDir},
+    path::{Path, PathBuf},
+};
 
 const CRATE_NAME: &str = env!("CARGO_PKG_NAME");
 
@@ -9,7 +12,6 @@ pub fn locate_dir(path: Option<PathBuf>) -> Result<PathBuf, Error> {
     let base = path.ok_or(Error::HomeNotFound)?;
     Ok(base.join(CRATE_NAME))
 }
-
 
 // Standard I/O wrappers with context attached
 pub fn read_dir(dir: &Path) -> Result<ReadDir, Error> {
