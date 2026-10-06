@@ -141,7 +141,11 @@ impl Storage {
         let mut stored = StoredNote::from_file(&path)?;
         stored.note.content = new_content.to_string();
 
-        io::atomic_write(&path, &self.data_dir, stored.note.to_file_content().as_bytes())
+        io::atomic_write(
+            &path,
+            &self.data_dir,
+            stored.note.to_file_content().as_bytes(),
+        )
     }
 }
 

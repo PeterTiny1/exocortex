@@ -151,7 +151,10 @@ mod tests {
         let note = Note::parse(raw, "fallback-slug");
 
         assert_eq!(note.title, "fallback-slug");
-        assert_eq!(note.content, "Just plain text without frontmatter delimiters.");
+        assert_eq!(
+            note.content,
+            "Just plain text without frontmatter delimiters."
+        );
     }
 
     #[test]
