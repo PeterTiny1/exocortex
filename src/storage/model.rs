@@ -99,3 +99,124 @@ pub struct SearchResult {
     pub note: StoredNote,
     pub title_match: bool,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    // ==========================================
+    // 1. Note Parsing Tests
+    // ==========================================
+
+    #[test]
+    fn test_parse_valid_frontmatter() {
+        let raw = "---\ntitle: \"My Daily Note\"\n---\n\nThis is the content.";
+        let note = Note::parse(raw, "fallback");
+
+        assert_eq!(note.title, "My Daily Note");
+        assert_eq!(note.content, "This is the content.");
+    }
+
+    #[test]
+    fn test_parse_single_quoted_title() {
+        let raw = "---\ntitle: 'Single Quoted'\n---\nNote content here.";
+        let note = Note::parse(raw, "fallback");
+
+        assert_eq!(note.title, "Single Quoted");
+        assert_eq!(note.content, "Note content here.");
+    }
+
+    #[test]
+    fn test_parse_title_with_colons() {
+        // Frontmatter fields often contain colons in values (e.g., subtitles/timestamps)
+        let raw = "---\ntitle: \"Rust: Advanced Patterns & Tips\"\n---\nContent";
+        let note = Note::parse(raw, "fallback");
+
+        assert_eq!(note.title, "Rust: Advanced Patterns & Tips");
+    }
+
+    #[test]
+    fn test_parse_crlf_line_endings() {
+        let raw = "---\r\ntitle: Windows Style\r\n---\r\n\r\nContent with CRLF";
+        let note = Note::parse(raw, "fallback");
+
+        assert_eq!(note.title, "Windows Style");
+        assert_eq!(note.content, "Content with CRLF");
+    }
+
+    #[test]
+    fn test_parse_missing_frontmatter_uses_fallback() {
+        let raw = "Just plain text without frontmatter delimiters.";
+        let note = Note::parse(raw, "fallback-slug");
+
+        assert_eq!(note.title, "fallback-slug");
+        assert_eq!(note.content, "Just plain text without frontmatter delimiters.");
+    }
+
+    #[test]
+    fn test_parse_malformed_frontmatter_does_not_panic() {
+        // Missing closing delimiter
+        let raw = "---\ntitle: Unclosed Frontmatter\nContent without end block";
+        let note = Note::parse(raw, "fallback");
+
+        assert_eq!(note.title, "fallback");
+        assert_eq!(note.content, raw.trim());
+    }
+
+    #[test]
+    fn test_note_roundtrip_serialization() {
+        let original = Note::new("Roundtrip Test", "Line 1\nLine 2");
+        let serialized = original.to_file_content();
+        let parsed = Note::parse(&serialized, "fallback");
+
+        assert_eq!(parsed.title, original.title);
+        assert_eq!(parsed.content, original.content);
+    }
+
+    // ==========================================
+    // 2. StoredNote & Persistence Tests
+    // ==========================================
+
+    #[test]
+    fn test_stored_note_with_path() {
+        let note = Note::new("Inline Note", "Some text");
+        let path = PathBuf::from("/tmp/my-note.md");
+        let stored = StoredNote::with_path(note, &path);
+
+        assert_eq!(stored.path(), path);
+        assert!(!stored.slug().is_empty());
+    }
+
+    #[test]
+    fn test_stored_note_file_io() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test_note.md");
+
+        let note = Note::new("File System Note", "Testing disk write and read.");
+        let stored = StoredNote::with_path(note, &file_path);
+
+        // Write to disk
+        stored.write().unwrap();
+        assert!(file_path.exists());
+
+        // Read back from disk
+        let loaded = StoredNote::from_file(&file_path).unwrap();
+        assert_eq!(loaded.note.title, "File System Note");
+        assert_eq!(loaded.note.content, "Testing disk write and read.");
+        assert_eq!(loaded.path(), file_path);
+    }
+
+    #[test]
+    fn test_stored_note_from_nonexistent_file_fails() {
+        let nonexistent = Path::new("/nonexistent_path_12345/note.md");
+        let result = StoredNote::from_file(nonexistent);
+
+        assert!(result.is_err());
+        if let Err(Error::Io { path, .. }) = result {
+            assert_eq!(path, nonexistent);
+        } else {
+            panic!("Expected Error::Io with attached path context");
+        }
+    }
+}
