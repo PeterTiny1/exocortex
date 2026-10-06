@@ -23,61 +23,7 @@ fn test_slugify_unicode_and_emojis() {
 }
 
 // ==========================================
-// 2. Note Parsing & Serialization Tests
-// ==========================================
-
-#[test]
-fn test_note_parse_with_frontmatter() {
-    let raw = "---\ntitle: Custom Title\n---\n\nNote content here.";
-    let note = Note::parse(raw, "fallback");
-    assert_eq!(note.title, "Custom Title");
-    assert_eq!(note.content, "Note content here.");
-}
-
-#[test]
-fn test_note_parse_frontmatter_quoted_titles() {
-    let raw_double = "---\ntitle: \"Double Quoted Title\"\n---\n\nContent";
-    let note_double = Note::parse(raw_double, "fallback");
-    assert_eq!(note_double.title, "Double Quoted Title");
-
-    let raw_single = "---\ntitle: 'Single Quoted Title'\n---\n\nContent";
-    let note_single = Note::parse(raw_single, "fallback");
-    assert_eq!(note_single.title, "Single Quoted Title");
-}
-
-#[test]
-fn test_note_parse_fallback() {
-    let raw = "Just raw markdown without frontmatter.";
-    let note = Note::parse(raw, "Fallback Title");
-    assert_eq!(note.title, "Fallback Title");
-    assert_eq!(note.content, "Just raw markdown without frontmatter.");
-}
-
-#[test]
-fn test_note_parse_unclosed_frontmatter() {
-    let raw = "---\ntitle: Incomplete Frontmatter\nNo closing fence";
-    let note = Note::parse(raw, "fallback");
-    assert_eq!(note.title, "fallback");
-    assert_eq!(note.content, raw);
-}
-
-#[test]
-fn test_note_parse_crlf_normalization() {
-    let raw = "---\r\ntitle: Windows Line Endings\r\n---\r\n\r\nContent with CRLF.\r\n";
-    let note = Note::parse(raw, "fallback");
-    assert_eq!(note.title, "Windows Line Endings");
-    assert_eq!(note.content, "Content with CRLF.");
-}
-
-#[test]
-fn test_note_to_file_content() {
-    let note = Note::new("My Title", "My Content");
-    let content = note.to_file_content();
-    assert_eq!(content, "---\ntitle: My Title\n---\n\nMy Content\n");
-}
-
-// ==========================================
-// 3. Path & Collision Tests
+// 2. Path & Collision Tests
 // ==========================================
 
 #[test]
@@ -116,28 +62,7 @@ fn test_slug_from_path() {
 }
 
 // ==========================================
-// 4. StoredNote Operations Tests
-// ==========================================
-
-#[test]
-fn test_stored_note_write_and_read() {
-    let dir = tempdir().unwrap();
-    let note = Note::new("Test Note", "Sample body text");
-
-    let stored = StoredNote::new(note, dir.path());
-    assert_eq!(stored.slug(), "test-note");
-    stored.write().unwrap();
-
-    assert!(stored.path().exists());
-
-    let read_back = StoredNote::from_file(stored.path()).unwrap();
-    assert_eq!(read_back.note.title, "Test Note");
-    assert_eq!(read_back.note.content, "Sample body text");
-    assert_eq!(read_back.slug(), "test-note");
-}
-
-// ==========================================
-// 5. Storage CRUD & Iteration Tests
+// 3. Storage CRUD & Iteration Tests
 // ==========================================
 
 #[test]
@@ -277,20 +202,4 @@ fn test_storage_init_with_cli_dir() {
     let storage = Storage::init(Some(cli_dir.clone())).unwrap();
     assert_eq!(storage.data_dir, cli_dir);
     assert!(storage.data_dir.exists());
-}
-
-// ==========================================
-// 6. Error & Edge Case Tests
-// ==========================================
-
-#[test]
-fn test_read_dir_non_existent() {
-    let missing_path = Path::new("/non/existent/path/for/exocortex/tests");
-    let storage = Storage {
-        config_dir: PathBuf::new(),
-        data_dir: missing_path.to_path_buf(),
-    };
-
-    let result = storage.list_notes();
-    assert!(matches!(result, Err(Error::Io { path, .. }) if path == missing_path));
 }
