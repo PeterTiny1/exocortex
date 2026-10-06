@@ -3,6 +3,7 @@ mod io;
 mod model;
 #[cfg(test)]
 mod tests;
+
 use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
@@ -11,12 +12,7 @@ use std::{
 pub use crate::storage::model::{Note, SearchResult, StoredNote};
 pub use error::Error;
 use error::PathIoContext;
-
 use io::locate_dir;
-
-// ==========================================
-// 1. Primary Business Logic (Storage)
-// ==========================================
 
 pub struct Storage {
     pub config_dir: PathBuf,
@@ -46,7 +42,6 @@ impl Storage {
 
     /// Resolves a note slug to its existing file path, returning an error if missing.
     pub fn get_note_path(&self, slug: &str) -> Result<PathBuf, Error> {
-        // Prevent path traversal attacks
         let safe_slug = Path::new(slug)
             .file_name()
             .and_then(|s| s.to_str())
@@ -99,7 +94,7 @@ impl Storage {
         let mut results = Vec::new();
 
         for note in self.iter_notes()? {
-            let note = note?; // Explicitly propagate read/parse errors
+            let note = note?;
             let title_match = note.note.title.to_lowercase().contains(&query_lower);
             let content_match = note.note.content.to_lowercase().contains(&query_lower);
 
@@ -111,37 +106,29 @@ impl Storage {
         Ok(results)
     }
 
-    /// Read a stored note by its unique slug.
     pub fn read_note(&self, slug: &str) -> Result<StoredNote, Error> {
         StoredNote::from_file(&self.get_note_path(slug)?)
     }
 
-    /// Delete a stored note from disk by its slug.
     pub fn delete_note(&self, slug: &str) -> Result<(), Error> {
         let path = self.get_note_path(slug)?;
         io::remove_file(&path)
     }
 
-    /// Renames a note by updating its title, writing the new file first,
-    /// and removing the old file only after the new file is safely on disk.
     pub fn rename_note(&self, old_slug: &str, new_title: &str) -> Result<StoredNote, Error> {
         let old_stored = self.read_note(old_slug)?;
 
         let new_slug_base = slugify(new_title);
         let new_path = generate_unique_path(&self.data_dir, &new_slug_base);
 
-        // 1. Create updated StoredNote pointing to the new path
         let new_stored =
             StoredNote::with_path(Note::new(new_title, &old_stored.note.content), &new_path);
 
-        // 2. Write the new note file first
         new_stored.write()?;
 
-        // 3. Only delete old file if path changed and write succeeded
         if old_stored.path() != new_path
             && let Err(e) = io::remove_file(&old_stored.path())
         {
-            // If cleanup fails, attempt to rollback new file to prevent duplicate state
             let _ = io::remove_file(&new_path);
             return Err(e);
         }
@@ -149,27 +136,16 @@ impl Storage {
         Ok(new_stored)
     }
 
-    /// Updates the content of a note
     pub fn update_note_content(&self, slug: &str, new_content: &str) -> Result<(), Error> {
         let path = self.get_note_path(slug)?;
         let mut stored = StoredNote::from_file(&path)?;
         stored.note.content = new_content.to_string();
 
-        // Unique temporary file in the same directory for atomic rename
-        let mut temp_file = io::new_temp_file(&self.data_dir)?;
-
-        io::temp_file_write_all(&mut temp_file, stored.note.to_file_content().as_bytes())?;
-
-        io::persist_temp_file(temp_file, &path)?;
-
-        Ok(())
+        io::atomic_write(&path, &self.data_dir, stored.note.to_file_content().as_bytes())
     }
 }
 
-// ==========================================
-// 2. Utility Functions & I/O Helpers
-// ==========================================
-
+// Utility Functions
 pub(crate) fn slugify(title: &str) -> String {
     let slug = title
         .to_lowercase()
@@ -212,6 +188,5 @@ pub(crate) fn generate_unique_path(base_path: &Path, slug: &str) -> PathBuf {
 }
 
 fn read_custom_data_dir(_config_dir: &Path) -> Option<PathBuf> {
-    // Stub: We will parse config.toml here once we add serde/toml
     None
 }

@@ -51,3 +51,9 @@ pub fn persist_temp_file(temp_file: NamedTempFile, target: &Path) -> Result<(), 
     })?;
     Ok(())
 }
+
+pub fn atomic_write(path: &Path, dir: &Path, data: &[u8]) -> Result<(), Error> {
+    let mut temp_file = new_temp_file(dir)?;
+    temp_file_write_all(&mut temp_file, data)?;
+    persist_temp_file(temp_file, path)
+}
