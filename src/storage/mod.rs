@@ -261,10 +261,7 @@ impl Storage {
 
         temp_file_write_all(&mut temp_file, stored.note.to_file_content().as_bytes())?;
 
-        temp_file.persist(&path).map_err(|err| Error::Io {
-            path,
-            source: err.error,
-        })?;
+        persist_temp_file(temp_file, &path)?;
 
         Ok(())
     }
@@ -352,6 +349,14 @@ fn remove_file(path: &Path) -> Result<(), Error> {
 
 fn new_temp_file(path: &Path) -> Result<NamedTempFile, Error> {
     NamedTempFile::new_in(path).with_path(path)
+}
+
+pub fn persist_temp_file(temp_file: NamedTempFile, target: &Path) -> Result<(), Error> {
+    temp_file.persist(target).map_err(|err| Error::Io {
+        path: target.to_path_buf(),
+        source: err.error,
+    })?;
+    Ok(())
 }
 
 // ==========================================
