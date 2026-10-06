@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use std::io::{self, IsTerminal, Read};
 use std::path::PathBuf;
 
 use crate::storage::{Note, Storage};
@@ -13,7 +14,7 @@ mod storage;
 )]
 pub struct Cli {
     /// Custom path to storage directory
-    #[arg(short, long, value_name = "DIR")]
+    #[arg(short, long, value_name = "DIR", global = true)]
     pub storage_dir: Option<PathBuf>,
 
     #[command(subcommand)]
@@ -23,22 +24,26 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Create a new note
+    #[command(alias = "new")]
     Create {
         /// Title of the note
         #[arg(short, long)]
         title: Option<String>,
 
-        /// Optional raw content or body
+        /// Optional raw content or body (reads stdin if omitted when piped)
         content: Option<String>,
     },
     /// List all notes in storage
+    #[command(alias = "ls")]
     List,
     /// Read and display a note's raw content by slug
+    #[command(alias = "cat")]
     Read {
         /// Slug of the note to display
         slug: String,
     },
     /// Delete a note by slug
+    #[command(aliases = ["rm", "del"])]
     Delete {
         /// Slug of the note to remove
         slug: String,
@@ -49,22 +54,43 @@ pub enum Commands {
         query: String,
     },
     /// Rename a note (updates title frontmatter and filename slug)
+    #[command(alias = "mv")]
     Rename {
         /// Current slug of the note
         slug: String,
         /// New title for the note
         new_title: String,
     },
+    /// Update the content of a note
+    #[command(alias = "edit")]
+    Update {
+        /// Slug of the note to update
+        slug: String,
+        /// Content to replace current content with
+        new_content: Option<String>,
+    },
 }
 
-fn main() -> Result<(), storage::Error> {
+fn read_content_or_stdin(content: Option<String>) -> io::Result<String> {
+    match content {
+        Some(c) => Ok(c),
+        None if !io::stdin().is_terminal() => {
+            let mut buffer = String::new();
+            io::stdin().read_to_string(&mut buffer)?;
+            Ok(buffer)
+        }
+        None => Ok(String::new()),
+    }
+}
+
+fn main() -> anyhow::Result<()> {
     let parsed = Cli::parse();
     let storage = Storage::init(parsed.storage_dir)?;
+
     match parsed.command {
         Commands::Create { title, content } => {
-            // Resolve defaults at the CLI boundary
             let title = title.unwrap_or_else(|| "Untitled Note".to_string());
-            let content = content.unwrap_or_default();
+            let content = read_content_or_stdin(content)?;
 
             let note = Note::new(&title, &content);
             let stored = storage.create_note(note)?;
@@ -72,8 +98,13 @@ fn main() -> Result<(), storage::Error> {
             println!("Created note at: {}", stored.path().display());
         }
         Commands::List => {
-            for stored in storage.list_notes()? {
-                println!("{} ({})", stored.note.title, stored.slug());
+            let notes = storage.list_notes()?;
+            if notes.is_empty() {
+                println!("No notes found.");
+            } else {
+                for stored in notes {
+                    println!("{} ({})", stored.note.title, stored.slug());
+                }
             }
         }
         Commands::Read { slug } => {
@@ -108,6 +139,12 @@ fn main() -> Result<(), storage::Error> {
                 updated.slug()
             );
         }
+        Commands::Update { slug, new_content } => {
+            let content = read_content_or_stdin(new_content)?;
+            storage.update_note_content(&slug, &content)?;
+            println!("Changed content of '{}.md'", slug);
+        }
     }
+
     Ok(())
 }
