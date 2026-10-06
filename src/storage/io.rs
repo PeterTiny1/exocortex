@@ -57,3 +57,79 @@ pub fn atomic_write(path: &Path, dir: &Path, data: &[u8]) -> Result<(), Error> {
     temp_file_write_all(&mut temp_file, data)?;
     persist_temp_file(temp_file, path)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tempfile::tempdir;
+
+    #[test]
+    fn test_locate_dir() {
+        let path = PathBuf::from("/home/user");
+        let result = locate_dir(Some(path)).unwrap();
+        assert_eq!(result, PathBuf::from("/home/user").join(CRATE_NAME));
+
+        let err = locate_dir(None).unwrap_err();
+        assert!(matches!(err, Error::HomeNotFound));
+    }
+
+    #[test]
+    fn test_file_io_operations() {
+        let dir = tempdir().unwrap();
+        let file_path = dir.path().join("test.txt");
+
+        // Write & Read string
+        write(&file_path, "hello world").unwrap();
+        let contents = read_to_string(&file_path).unwrap();
+        assert_eq!(contents, "hello world");
+
+        // Remove file
+        remove_file(&file_path).unwrap();
+        assert!(!file_path.exists());
+
+        // Verify Error context path mapping on failure
+        let err = read_to_string(&file_path).unwrap_err();
+        if let Error::Io { path, source } = err {
+            assert_eq!(path, file_path);
+            assert_eq!(source.kind(), std::io::ErrorKind::NotFound);
+        } else {
+            panic!("Expected Error::Io");
+        }
+    }
+
+    #[test]
+    fn test_directory_operations() {
+        let dir = tempdir().unwrap();
+        let nested_dir = dir.path().join("a").join("b");
+
+        // Create directory tree
+        create_dir_all(&nested_dir).unwrap();
+        assert!(nested_dir.is_dir());
+
+        // Read directory entries
+        let entries: Vec<_> = read_dir(dir.path()).unwrap().map(|r| r.unwrap()).collect();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].file_name(), "a");
+    }
+
+    #[test]
+    fn test_atomic_write() {
+        let dir = tempdir().unwrap();
+        let target_file = dir.path().join("atomic.txt");
+        let payload = b"atomic payload";
+
+        // Successful atomic write
+        atomic_write(&target_file, dir.path(), payload).unwrap();
+        assert_eq!(fs::read(&target_file).unwrap(), payload);
+
+        // Failure case: target directory does not exist for temp file creation
+        let invalid_dir = dir.path().join("non_existent");
+        let err = atomic_write(&target_file, &invalid_dir, payload).unwrap_err();
+
+        if let Error::Io { path, .. } = err {
+            assert_eq!(path, invalid_dir);
+        } else {
+            panic!("Expected Error::Io containing invalid directory path");
+        }
+    }
+}
