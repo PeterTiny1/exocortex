@@ -1,0 +1,36 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "master", "main" ]
+  pull_request:
+    branches: [ "master", "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  check:
+    name: CI Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 1. Cache target and cargo home to speed up build times dramatically
+      - name: Setup Swatinem Cargo Cache
+        uses: Swatinem/rust-cache@v2
+
+      # 2. Catch formatting and linter issues early
+      - name: Check code formatting
+        run: cargo fmt --check
+
+      - name: Run Clippy (Linter)
+        run: cargo clippy --all-targets -- -D warnings
+
+      # 3. Fast compile check before running full tests
+      - name: Check
+        run: cargo check --all-targets
+
+      - name: Run tests
+        run: cargo test --verbose
