@@ -4,6 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use tempfile::NamedTempFile;
 use thiserror::Error;
 
 // ==========================================
@@ -272,25 +273,25 @@ impl Storage {
     /// Updates the content of a note
     pub fn update_note_content(&self, slug: &str, new_content: &str) -> Result<(), Error> {
         let path = self.get_note_path(slug)?;
-
-        // 1. Create a temporary file in the same directory
-        let temp_path = path.with_extension("md.tmp");
-
-        // 2. Read existing note to keep title/frontmatter intact if needed, then prepare content
         let mut stored = StoredNote::from_file(&path)?;
         stored.note.content = new_content.to_string();
 
-        // 3. Write new content to temp file
-        if let Err(e) = write(&temp_path, stored.note.to_file_content()) {
-            let _ = remove_file(&temp_path);
-            return Err(e);
-        }
+        // Unique temporary file in the same directory for atomic rename
+        let mut temp_file = NamedTempFile::new_in(&self.data_dir).map_err(|source| Error::Io {
+            path: self.data_dir.clone(),
+            source,
+        })?;
 
-        // 4. Atomically swap temp file onto target path
-        if let Err(e) = fs::rename(&temp_path, &path).with_path(&path) {
-            let _ = remove_file(&temp_path);
-            return Err(e);
-        }
+        std::io::Write::write_all(&mut temp_file, stored.note.to_file_content().as_bytes())
+            .map_err(|source| Error::Io {
+                path: temp_file.path().to_path_buf(),
+                source,
+            })?;
+
+        temp_file.persist(&path).map_err(|err| Error::Io {
+            path,
+            source: err.error,
+        })?;
 
         Ok(())
     }
