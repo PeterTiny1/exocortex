@@ -1,22 +1,17 @@
 mod error;
+mod io;
 use std::{
     ffi::OsStr,
-    fs::{self, ReadDir},
     path::{Path, PathBuf},
 };
 
 pub use error::Error;
 use error::PathIoContext;
-use tempfile::NamedTempFile;
+
+use io::locate_dir;
 
 // ==========================================
-// 1. Constants & Error Definitions
-// ==========================================
-
-const CRATE_NAME: &str = env!("CARGO_PKG_NAME");
-
-// ==========================================
-// 2. Domain Models (Note, StoredNote, SearchResult)
+// 1. Domain Models (Note, StoredNote, SearchResult)
 // ==========================================
 
 #[derive(Debug, Clone)]
@@ -79,7 +74,7 @@ impl StoredNote {
     }
 
     fn from_file(path: &Path) -> Result<Self, Error> {
-        let file_contents = read_to_string(path)?;
+        let file_contents = io::read_to_string(path)?;
         let slug = slug_from_path(path, "untitled");
         Ok(Self {
             path: path.to_path_buf(),
@@ -89,7 +84,7 @@ impl StoredNote {
     }
 
     fn write(&self) -> Result<(), Error> {
-        write(&self.path, self.note.to_file_content())?;
+        io::write(&self.path, self.note.to_file_content())?;
         Ok(())
     }
 
@@ -109,7 +104,7 @@ pub struct SearchResult {
 }
 
 // ==========================================
-// 3. Primary Business Logic (Storage)
+// 2. Primary Business Logic (Storage)
 // ==========================================
 
 pub struct Storage {
@@ -129,8 +124,8 @@ impl Storage {
             },
         };
 
-        create_dir_all(&config_dir)?;
-        create_dir_all(&data_dir)?;
+        io::create_dir_all(&config_dir)?;
+        io::create_dir_all(&data_dir)?;
 
         Ok(Self {
             config_dir,
@@ -165,7 +160,7 @@ impl Storage {
 
     /// Streams notes one-by-one lazily without allocating a temporary Vec.
     pub fn iter_notes(&self) -> Result<impl Iterator<Item = Result<StoredNote, Error>>, Error> {
-        let entries = read_dir(&self.data_dir)?;
+        let entries = io::read_dir(&self.data_dir)?;
 
         let iter = entries.filter_map(|entry| {
             let entry = match entry.with_path(&self.data_dir) {
@@ -213,7 +208,7 @@ impl Storage {
     /// Delete a stored note from disk by its slug.
     pub fn delete_note(&self, slug: &str) -> Result<(), Error> {
         let path = self.get_note_path(slug)?;
-        remove_file(&path)
+        io::remove_file(&path)
     }
 
     /// Renames a note by updating its title, writing the new file first,
@@ -240,10 +235,10 @@ impl Storage {
 
         // 3. Only delete old file if path changed and write succeeded
         if old_stored.path != new_path
-            && let Err(e) = remove_file(&old_stored.path)
+            && let Err(e) = io::remove_file(&old_stored.path)
         {
             // If cleanup fails, attempt to rollback new file to prevent duplicate state
-            let _ = remove_file(&new_path);
+            let _ = io::remove_file(&new_path);
             return Err(e);
         }
 
@@ -257,18 +252,18 @@ impl Storage {
         stored.note.content = new_content.to_string();
 
         // Unique temporary file in the same directory for atomic rename
-        let mut temp_file = new_temp_file(&self.data_dir)?;
+        let mut temp_file = io::new_temp_file(&self.data_dir)?;
 
-        temp_file_write_all(&mut temp_file, stored.note.to_file_content().as_bytes())?;
+        io::temp_file_write_all(&mut temp_file, stored.note.to_file_content().as_bytes())?;
 
-        persist_temp_file(temp_file, &path)?;
+        io::persist_temp_file(temp_file, &path)?;
 
         Ok(())
     }
 }
 
 // ==========================================
-// 4. Utility Functions & I/O Helpers
+// 3. Utility Functions & I/O Helpers
 // ==========================================
 
 fn slugify(title: &str) -> String {
@@ -312,55 +307,13 @@ fn generate_unique_path(base_path: &Path, slug: &str) -> PathBuf {
     }
 }
 
-fn locate_dir(path: Option<PathBuf>) -> Result<PathBuf, Error> {
-    Ok(path.ok_or(Error::HomeNotFound)?.join(CRATE_NAME))
-}
-
 fn read_custom_data_dir(_config_dir: &Path) -> Option<PathBuf> {
     // Stub: We will parse config.toml here once we add serde/toml
     None
 }
 
-// Standard I/O wrappers with context attached
-fn read_dir(dir: &Path) -> Result<ReadDir, Error> {
-    fs::read_dir(dir).with_path(dir)
-}
-
-fn create_dir_all(dir: &Path) -> Result<(), Error> {
-    fs::create_dir_all(dir).with_path(dir)
-}
-
-fn read_to_string(path: &Path) -> Result<String, Error> {
-    fs::read_to_string(path).with_path(path)
-}
-
-fn write(path: &Path, contents: impl AsRef<[u8]>) -> Result<(), Error> {
-    fs::write(path, contents).with_path(path)
-}
-
-fn temp_file_write_all(file: &mut NamedTempFile, contents: &[u8]) -> Result<(), Error> {
-    use std::io::Write;
-    file.write_all(contents).with_path(file.path())
-}
-
-fn remove_file(path: &Path) -> Result<(), Error> {
-    std::fs::remove_file(path).with_path(path)
-}
-
-fn new_temp_file(path: &Path) -> Result<NamedTempFile, Error> {
-    NamedTempFile::new_in(path).with_path(path)
-}
-
-pub fn persist_temp_file(temp_file: NamedTempFile, target: &Path) -> Result<(), Error> {
-    temp_file.persist(target).map_err(|err| Error::Io {
-        path: target.to_path_buf(),
-        source: err.error,
-    })?;
-    Ok(())
-}
-
 // ==========================================
-// 5. Tests
+// 4. Tests
 // ==========================================
 
 #[cfg(test)]
