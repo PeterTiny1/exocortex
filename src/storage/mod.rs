@@ -257,16 +257,9 @@ impl Storage {
         stored.note.content = new_content.to_string();
 
         // Unique temporary file in the same directory for atomic rename
-        let mut temp_file = NamedTempFile::new_in(&self.data_dir).map_err(|source| Error::Io {
-            path: self.data_dir.clone(),
-            source,
-        })?;
+        let mut temp_file = new_temp_file(&self.data_dir)?;
 
-        std::io::Write::write_all(&mut temp_file, stored.note.to_file_content().as_bytes())
-            .map_err(|source| Error::Io {
-                path: temp_file.path().to_path_buf(),
-                source,
-            })?;
+        temp_file_write_all(&mut temp_file, stored.note.to_file_content().as_bytes())?;
 
         temp_file.persist(&path).map_err(|err| Error::Io {
             path,
@@ -348,8 +341,17 @@ fn write(path: &Path, contents: impl AsRef<[u8]>) -> Result<(), Error> {
     fs::write(path, contents).with_path(path)
 }
 
+fn temp_file_write_all(file: &mut NamedTempFile, contents: &[u8]) -> Result<(), Error> {
+    use std::io::Write;
+    file.write_all(contents).with_path(file.path())
+}
+
 fn remove_file(path: &Path) -> Result<(), Error> {
     std::fs::remove_file(path).with_path(path)
+}
+
+fn new_temp_file(path: &Path) -> Result<NamedTempFile, Error> {
+    NamedTempFile::new_in(path).with_path(path)
 }
 
 // ==========================================
